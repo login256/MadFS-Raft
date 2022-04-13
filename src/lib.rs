@@ -94,7 +94,8 @@
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 pub mod errors;
-pub mod rpc;
+pub mod rpc_struct;
+pub mod rpc_madsim;
 pub mod server;
 
 pub use errors::StoreError;
