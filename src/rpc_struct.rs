@@ -2,67 +2,74 @@ use madsim::rand::{self, Rng};
 use madsim::Request;
 use serde::{Deserialize, Serialize};
 
-enum Consistency {
+
+pub type Result<T> = std::result::Result<T, String>;
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Consistency {
     STRONG,
     RELAXED_READS,
 }
 
 #[derive(Debug, Serialize, Deserialize, Request)]
-#[rtype("Result<QueryResults>")]
+#[rtype("std::result::Result<QueryResults, crate::StoreError>")]
 pub struct Query {
     #[serde(with = "serde_bytes")]
-    sql: Vec<u8>,
-    consistency: Consistency,
+    pub sql: Vec<u8>,
+    pub consistency: Consistency,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryRow {
+    pub values: Vec<String>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryResults {
-    #[serde(with = "serde_bytes")]
-    rows: Vec<Vec<Vec<u8>>>,
+    pub rows: Vec<QueryRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Request)]
 #[rtype("Result<()>")]
 pub struct VoteRequest {
-    from_id: u64,
-    term: u64,
-    last_log_index: u64,
-    last_log_term: u64,
+    pub from_id: u64,
+    pub term: u64,
+    pub last_log_index: u64,
+    pub last_log_term: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Request)]
 #[rtype("Result<()>")]
 pub struct VoteResponse {
-    from_id: u64,
-    term: u64,
-    vote_granted: bool,
+    pub from_id: u64,
+    pub term: u64,
+    pub vote_granted: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogEntry {
-    id: u64,
+    pub id: u64,
     #[serde(with = "serde_bytes")]
-    sql: Vec<u8>,
-    index: u64,
-    term: u64,
+    pub sql: Vec<u8>,
+    pub index: u64,
+    pub term: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Request)]
 #[rtype("Result<()>")]
 pub struct AppendEntriesRequest {
-    from_id: u64,
-    term: u64,
-    prev_log_index: u64,
-    prev_log_term: u64,
-    entries: Vec<LogEntry>,
-    commit_index: u64,
+    pub from_id: u64,
+    pub term: u64,
+    pub prev_log_index: u64,
+    pub prev_log_term: u64,
+    pub entries: Vec<LogEntry>,
+    pub commit_index: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Request)]
 #[rtype("Result<()>")]
 pub struct AppendEntriesResponse {
-    from_id: u64,
-    term: u64,
-    success: bool,
-    last_index: u64,
-    mismatch_index: Option<u64>,
+    pub from_id: u64,
+    pub term: u64,
+    pub success: bool,
+    pub last_index: u64,
+    pub mismatch_index: Option<u64>,
 }
