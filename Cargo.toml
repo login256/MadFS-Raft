@@ -12,12 +12,16 @@ async-mutex = "1.4.0"
 crossbeam-channel = "0.5.1"
 crossbeam = "0.8.1"
 derivative = "2.2.0"
-little_raft = "0.1.6"
+little_raft = {git = "https://github.com/login256/little-raft", rev = "e59164f"}
 prost = "0.8.0"
 sqlite = "0.26.0"
 thiserror = "1.0.30"
 tokio = { version = "1.11.0", features = ["full"] }
 tonic = "0.5.2"
+serde = { version = "1.0.137", features = ["derive"] }
+serde_json = "1.0"
+nix = "0.24.1"
+log = "0.4.17"
 
 [build-dependencies]
 tonic-build = "0.5.2"

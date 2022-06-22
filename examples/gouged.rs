@@ -7,6 +7,7 @@ use chiselstore::{
 use std::sync::Arc;
 use structopt::StructOpt;
 use tonic::transport::Server;
+use log::info;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "gouged")]
@@ -34,12 +35,15 @@ fn node_rpc_addr(id: usize) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    info!("test");
+    println!("test");
     let opt = Opt::from_args();
     let (host, port) = node_authority(opt.id);
     let rpc_listen_addr = format!("{}:{}", host, port).parse().unwrap();
     let transport = RpcTransport::new(Box::new(node_rpc_addr));
     let server = StoreServer::start(opt.id, opt.peers, transport)?;
     let server = Arc::new(server);
+    println!("begin");
     let f = {
         let server = server.clone();
         tokio::task::spawn_blocking(move || {

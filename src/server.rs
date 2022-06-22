@@ -1,6 +1,7 @@
 //! ChiselStore server module.
 
 use crate::errors::StoreError;
+use crate::store::FileStore;
 use async_notify::Notify;
 use async_trait::async_trait;
 use crossbeam_channel as channel;
@@ -17,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use log::info;
 
 /// ChiselStore transport layer.
 ///
@@ -213,7 +215,7 @@ impl<T: StoreTransport + Send + Sync> Cluster<StoreCommand> for Store<T> {
     }
 }
 
-type StoreReplica<T> = Replica<Store<T>, StoreCommand, Store<T>>;
+type StoreReplica<T> = Replica<Store<T>, StoreCommand, Store<T>, FileStore>;
 
 /// ChiselStore server.
 #[derive(Derivative)]
@@ -257,7 +259,9 @@ const MAX_ELECTION_TIMEOUT: Duration = Duration::from_millis(950);
 impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     /// Start a new server as part of a ChiselStore cluster.
     pub fn start(this_id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
+        println!("Store Sever start!");
         let config = StoreConfig { conn_pool_size: 20 };
+        let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
         let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
         let noop = StoreCommand {
             id: NOP_TRANSITION_ID,
@@ -265,6 +269,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
         };
         let (message_notifier_tx, message_notifier_rx) = channel::unbounded();
         let (transition_notifier_tx, transition_notifier_rx) = channel::unbounded();
+        println!("create replica!");
         let replica = Replica::new(
             this_id,
             peers,
@@ -273,7 +278,9 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             noop,
             HEARTBEAT_TIMEOUT,
             (MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT),
+            filestore,
         );
+        println!("replica create end!");
         let replica = Arc::new(Mutex::new(replica));
         Ok(StoreServer {
             next_cmd_id: AtomicU64::new(1), // zero is reserved for no-op.

@@ -96,6 +96,7 @@
 pub mod errors;
 pub mod rpc;
 pub mod server;
+pub mod store;
 
 pub use errors::StoreError;
 pub use server::Consistency;
