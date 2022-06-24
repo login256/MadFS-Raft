@@ -15,9 +15,13 @@ use little_raft::{
 };
 use sqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs::{self, remove_file};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use serde::{Serialize, Deserialize};
 use log::info;
 
 /// ChiselStore transport layer.
@@ -52,7 +56,7 @@ pub enum Consistency {
 /// Store command.
 ///
 /// A store command is a SQL statement that is replicated in the Raft cluster.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoreCommand {
     /// Unique ID of this command.
     pub id: usize,
@@ -262,6 +266,8 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
         println!("Store Sever start!");
         let config = StoreConfig { conn_pool_size: 20 };
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
+        let sss = format!("node{}.db", this_id);
+        fs::remove_file(sss.as_str());//.unwrap();
         let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
         let noop = StoreCommand {
             id: NOP_TRANSITION_ID,
