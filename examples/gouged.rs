@@ -33,7 +33,7 @@ fn node_rpc_addr(id: usize) -> String {
     format!("http://{}:{}", host, port)
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     info!("test");
     println!("test");

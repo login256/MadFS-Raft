@@ -3,7 +3,7 @@ use std::{
     fs::{File, OpenOptions, self},
     io::{BufRead, BufReader, Write},
     os::unix::prelude::AsRawFd,
-    path::Path, sync::Arc,
+    path::Path,
 };
 
 use crate::server::StoreCommand;
@@ -13,7 +13,6 @@ use little_raft::state_machine::Storage;
 use log::info;
 use nix::unistd;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 /*
 use serde::ser::{Serialize, Serializer, SerializeStruct};
 
