@@ -1,2 +1,11 @@
 /target
 Cargo.lock
+1/HardState/data.txt
+1/Log/log.txt
+2/HardState/data.txt
+2/Log/log.txt
+3/HardState/data.txt
+3/Log/log.txt
+node1.db
+node2.db
+node3.db

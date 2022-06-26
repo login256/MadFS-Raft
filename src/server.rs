@@ -4,8 +4,6 @@ use crate::errors::StoreError;
 use crate::store::FileStore;
 use async_notify::Notify;
 use async_trait::async_trait;
-use crossbeam_channel as channel;
-use crossbeam_channel::{Receiver, Sender};
 use derivative::Derivative;
 use little_raft::{
     cluster::Cluster,
@@ -13,16 +11,16 @@ use little_raft::{
     replica::{Replica, ReplicaID},
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
+use log::info;
+use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::fs::{self, remove_file};
-use std::path::Path;
+use std::fs::{self};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
-use log::info;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
 
 /// ChiselStore transport layer.
 ///
@@ -229,9 +227,9 @@ pub struct StoreServer<T: StoreTransport + Send + Sync> {
     store: Arc<Mutex<Store<T>>>,
     #[derivative(Debug = "ignore")]
     replica: Arc<Mutex<StoreReplica<T>>>,
-    message_notifier_rx: Receiver<()>,
+    message_notifier_rx: Mutex<Receiver<()>>,
     message_notifier_tx: Sender<()>,
-    transition_notifier_rx: Receiver<()>,
+    transition_notifier_rx: Mutex<Receiver<()>>,
     transition_notifier_tx: Sender<()>,
 }
 
@@ -267,14 +265,14 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
         let config = StoreConfig { conn_pool_size: 20 };
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
         let sss = format!("node{}.db", this_id);
-        fs::remove_file(sss.as_str());//.unwrap();
+        fs::remove_file(sss.as_str()); //.unwrap();
         let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
         let noop = StoreCommand {
             id: NOP_TRANSITION_ID,
             sql: "".to_string(),
         };
-        let (message_notifier_tx, message_notifier_rx) = channel::unbounded();
-        let (transition_notifier_tx, transition_notifier_rx) = channel::unbounded();
+        let (message_notifier_tx, message_notifier_rx) = unbounded_channel();
+        let (transition_notifier_tx, transition_notifier_rx) = unbounded_channel();
         println!("create replica!");
         let replica = Replica::new(
             this_id,
@@ -287,6 +285,8 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             filestore,
         );
         println!("replica create end!");
+        let message_notifier_rx = Mutex::new(message_notifier_rx);
+        let transition_notifier_rx = Mutex::new(transition_notifier_rx);
         let replica = Arc::new(Mutex::new(replica));
         Ok(StoreServer {
             next_cmd_id: AtomicU64::new(1), // zero is reserved for no-op.
@@ -300,11 +300,15 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     }
 
     /// Run the blocking event loop.
-    pub fn run(&self) {
-        self.replica.lock().unwrap().start(
-            self.message_notifier_rx.clone(),
-            self.transition_notifier_rx.clone(),
-        );
+    pub async fn run(&self) {
+        self.replica
+            .lock()
+            .unwrap()
+            .start(
+                &mut self.message_notifier_rx.lock().unwrap(),
+                &mut self.transition_notifier_rx.lock().unwrap(),
+            )
+            .await;
     }
 
     /// Execute a SQL statement on the ChiselStore cluster.

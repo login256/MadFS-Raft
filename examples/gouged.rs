@@ -46,8 +46,8 @@ async fn main() -> Result<()> {
     println!("begin");
     let f = {
         let server = server.clone();
-        tokio::task::spawn_blocking(move || {
-            server.run();
+        tokio::task::spawn(async move {
+            server.run().await;
         })
     };
     let rpc = RpcService::new(server);
