@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use crossbeam::queue::ArrayQueue;
 use derivative::Derivative;
 use little_raft::message::Message;
-use std::collections::HashMap;
+use madsim::collections::HashMap;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
@@ -302,7 +302,7 @@ impl Rpc for RpcService {
             last_log_term,
         };
         let server = self.server.clone();
-        server.recv_msg(msg);
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 
@@ -320,7 +320,7 @@ impl Rpc for RpcService {
             vote_granted,
         };
         let server = self.server.clone();
-        server.recv_msg(msg);
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 
@@ -359,7 +359,7 @@ impl Rpc for RpcService {
             commit_index,
         };
         let server = self.server.clone();
-        server.recv_msg(msg);
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 
@@ -381,7 +381,7 @@ impl Rpc for RpcService {
             mismatch_index,
         };
         let server = self.server.clone();
-        server.recv_msg(msg);
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 }

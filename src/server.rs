@@ -11,13 +11,14 @@ use little_raft::{
     replica::{Replica, ReplicaID},
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
-use log::info;
+//use log::info;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
-use std::collections::HashMap;
+use madsim::collections::HashMap;
 use std::fs::{self};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
+use tokio::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
@@ -145,8 +146,8 @@ impl<T: StoreTransport + Send + Sync> Store<T> {
     }
 }
 
-fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults, StoreError> {
-    let conn = conn.lock().unwrap();
+async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults, StoreError> {
+    let conn = conn.lock().await;
     let mut rows = vec![];
     conn.iterate(sql, |pairs| {
         let mut row = QueryRow::new();
@@ -159,8 +160,9 @@ fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults, Stor
     Ok(QueryResults { rows })
 }
 
+#[async_trait]
 impl<T: StoreTransport + Send + Sync> StateMachine<StoreCommand> for Store<T> {
-    fn register_transition_state(&mut self, transition_id: usize, state: TransitionState) {
+    async fn register_transition_state(&mut self, transition_id: usize, state: TransitionState) {
         if state == TransitionState::Applied {
             if let Some(completion) = self.command_completions.remove(&(transition_id as u64)) {
                 completion.notify();
@@ -168,18 +170,18 @@ impl<T: StoreTransport + Send + Sync> StateMachine<StoreCommand> for Store<T> {
         }
     }
 
-    fn apply_transition(&mut self, transition: StoreCommand) {
+    async fn apply_transition(&mut self, transition: StoreCommand) {
         if transition.id == NOP_TRANSITION_ID {
             return;
         }
         let conn = self.get_connection();
-        let results = query(conn, transition.sql);
+        let results = query(conn, transition.sql).await;
         if self.is_leader() {
             self.results.insert(transition.id as u64, results);
         }
     }
 
-    fn get_pending_transitions(&mut self) -> Vec<StoreCommand> {
+    async fn get_pending_transitions(&mut self) -> Vec<StoreCommand> {
         let cur = self.pending_transitions.clone();
         self.pending_transitions = Vec::new();
         cur
@@ -260,12 +262,12 @@ const MAX_ELECTION_TIMEOUT: Duration = Duration::from_millis(950);
 
 impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     /// Start a new server as part of a ChiselStore cluster.
-    pub fn start(this_id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
+    pub async fn start(this_id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
         println!("Store Sever start!");
         let config = StoreConfig { conn_pool_size: 20 };
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
         let sss = format!("node{}.db", this_id);
-        fs::remove_file(sss.as_str()); //.unwrap();
+        let _res = fs::remove_file(sss.as_str());
         let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
         let noop = StoreCommand {
             id: NOP_TRANSITION_ID,
@@ -283,7 +285,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             HEARTBEAT_TIMEOUT,
             (MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT),
             filestore,
-        );
+        ).await;
         println!("replica create end!");
         let message_notifier_rx = Mutex::new(message_notifier_rx);
         let transition_notifier_rx = Mutex::new(transition_notifier_rx);
@@ -303,10 +305,10 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     pub async fn run(&self) {
         self.replica
             .lock()
-            .unwrap()
+            .await
             .start(
-                &mut self.message_notifier_rx.lock().unwrap(),
-                &mut self.transition_notifier_rx.lock().unwrap(),
+                &mut *(self.message_notifier_rx.lock().await),
+                &mut *(self.transition_notifier_rx.lock().await),
             )
             .await;
     }
@@ -329,7 +331,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             Consistency::Strong => {
                 self.wait_for_leader().await;
                 let (delegate, leader, transport) = {
-                    let store = self.store.lock().unwrap();
+                    let store = self.store.lock().await;
                     (!store.is_leader(), store.leader, store.transport.clone())
                 };
                 if delegate {
@@ -341,7 +343,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
                     return Err(StoreError::NotLeader);
                 }
                 let (notify, id) = {
-                    let mut store = self.store.lock().unwrap();
+                    let mut store = self.store.lock().await;
                     let id = self.next_cmd_id.fetch_add(1, Ordering::SeqCst);
                     let cmd = StoreCommand {
                         id: id as usize,
@@ -354,15 +356,15 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
                 };
                 self.transition_notifier_tx.send(()).unwrap();
                 notify.notified().await;
-                let results = self.store.lock().unwrap().results.remove(&id).unwrap();
+                let results = self.store.lock().await.results.remove(&id).unwrap();
                 results?
             }
             Consistency::RelaxedReads => {
                 let conn = {
-                    let mut store = self.store.lock().unwrap();
+                    let mut store = self.store.lock().await;
                     store.get_connection()
                 };
-                query(conn, stmt.as_ref().to_string())?
+                query(conn, stmt.as_ref().to_string()).await?
             }
         };
         Ok(results)
@@ -372,7 +374,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     pub async fn wait_for_leader(&self) {
         loop {
             let notify = {
-                let mut store = self.store.lock().unwrap();
+                let mut store = self.store.lock().await;
                 if store.leader_exists.load(Ordering::SeqCst) {
                     break;
                 }
@@ -383,7 +385,7 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             if self
                 .store
                 .lock()
-                .unwrap()
+                .await
                 .leader_exists
                 .load(Ordering::SeqCst)
             {
@@ -395,8 +397,8 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     }
 
     /// Receive a message from the ChiselStore cluster.
-    pub fn recv_msg(&self, msg: little_raft::message::Message<StoreCommand>) {
-        let mut cluster = self.store.lock().unwrap();
+    pub async fn recv_msg(&self, msg: little_raft::message::Message<StoreCommand>) {
+        let mut cluster = self.store.lock().await;
         cluster.pending_messages.push(msg);
         self.message_notifier_tx.send(()).unwrap();
     }
