@@ -4,10 +4,10 @@ use chiselstore::{
     rpc::{RpcService, RpcTransport},
     StoreServer,
 };
+use log::info;
 use std::sync::Arc;
 use structopt::StructOpt;
 use tonic::transport::Server;
-use log::info;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "gouged")]

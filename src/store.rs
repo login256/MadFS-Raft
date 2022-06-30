@@ -2,7 +2,7 @@
 
 use std::{
     ffi::OsStr,
-    fs::{File, OpenOptions, self},
+    fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
     os::unix::prelude::AsRawFd,
     path::Path,
@@ -170,7 +170,7 @@ impl FileStore {
             first_index: first_index,
             last_index: last_index,
         };
-        println!("{:?}",re);
+        println!("{:?}", re);
         re
     }
 }
@@ -187,7 +187,11 @@ impl Storage<StoreCommand> for FileStore {
         };
         let mut s = serde_json::to_string(&myentry).unwrap();
         s.push_str("\n");
-        self.log_file.as_ref().unwrap().write_all(s.as_bytes()).unwrap();
+        self.log_file
+            .as_ref()
+            .unwrap()
+            .write_all(s.as_bytes())
+            .unwrap();
         self.var_file.flush().unwrap();
         unistd::fsync(self.var_file.as_raw_fd()).unwrap();
         self.last_index += 1;
@@ -213,8 +217,7 @@ impl Storage<StoreCommand> for FileStore {
             match line {
                 Ok(ss) => {
                     let my_log_entry: MyLogEntry = serde_json::from_str(ss).unwrap();
-                    if my_log_entry.index >= index
-                    {
+                    if my_log_entry.index >= index {
                         self.last_index = index;
                         break;
                     }
@@ -271,7 +274,11 @@ impl Storage<StoreCommand> for FileStore {
         return self.cur_vote;
     }
 
-    fn entries(&mut self, low: usize, high: usize) -> Vec<little_raft::message::LogEntry<StoreCommand>> {
+    fn entries(
+        &mut self,
+        low: usize,
+        high: usize,
+    ) -> Vec<little_raft::message::LogEntry<StoreCommand>> {
         self.log_file = None;
         let p = self.path.clone() + "/Log/log.txt";
         let log_path = Path::new(OsStr::new(p.as_str()));
@@ -284,10 +291,10 @@ impl Storage<StoreCommand> for FileStore {
                 Ok(ss) => {
                     let my_log_entry: MyLogEntry = serde_json::from_str(ss).unwrap();
                     if my_log_entry.index >= low {
-                        if my_log_entry.index >= high{
+                        if my_log_entry.index >= high {
                             break;
                         }
-                        re.push(LogEntry{
+                        re.push(LogEntry {
                             transition: my_log_entry.transition,
                             index: my_log_entry.index,
                             term: my_log_entry.term,

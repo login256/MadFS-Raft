@@ -12,17 +12,20 @@ use little_raft::{
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
 //use log::info;
+use log_derive::logfn_inputs;
+use madsim::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
-use madsim::collections::HashMap;
-use std::{fs::{self}, fmt::Debug};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc};
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
+use std::{
+    fmt::Debug,
+    fs::{self},
+};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
-use log_derive::logfn_inputs;
+use tokio::sync::Mutex;
 
 /// ChiselStore transport layer.
 ///
@@ -264,7 +267,11 @@ const MAX_ELECTION_TIMEOUT: Duration = Duration::from_millis(950);
 
 impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
     /// Start a new server as part of a ChiselStore cluster.
-    pub async fn start(this_id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
+    pub async fn start(
+        this_id: usize,
+        peers: Vec<usize>,
+        transport: T,
+    ) -> Result<Self, StoreError> {
         println!("Store Sever start!");
         let config = StoreConfig { conn_pool_size: 20 };
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
@@ -287,7 +294,8 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
             HEARTBEAT_TIMEOUT,
             (MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT),
             filestore,
-        ).await;
+        )
+        .await;
         println!("replica create end!");
         let message_notifier_rx = Mutex::new(message_notifier_rx);
         let transition_notifier_rx = Mutex::new(transition_notifier_rx);
@@ -384,13 +392,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                 store.waiters.push(notify.clone());
                 notify
             };
-            if self
-                .store
-                .lock()
-                .await
-                .leader_exists
-                .load(Ordering::SeqCst)
-            {
+            if self.store.lock().await.leader_exists.load(Ordering::SeqCst) {
                 break;
             }
             // TODO: add a timeout and fail if necessary
