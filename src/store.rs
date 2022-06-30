@@ -1,3 +1,5 @@
+//! Moudle for store paramater into file
+
 use std::{
     ffi::OsStr,
     fs::{File, OpenOptions, self},
@@ -47,10 +49,14 @@ struct MyLogEntry {
     term: usize,
 }
 
-//FileStore
+/// FileStore
+///
+/// to store value need persisted
 #[derive(Debug)]
 pub struct FileStore {
+    //path for store
     path: String,
+    //hardstate file
     var_file: File,
     log_file: Option<File>,
     cur_term: usize,
@@ -60,7 +66,8 @@ pub struct FileStore {
 }
 
 impl FileStore {
-    //new a FileStore
+    /// get a new FileStore
+    /// db file will be clear
     pub fn new(path: Option<String>) -> Self {
         println!("Store create!");
         let path = match path {

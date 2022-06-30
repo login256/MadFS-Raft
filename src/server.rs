@@ -15,13 +15,14 @@ use little_raft::{
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
 use madsim::collections::HashMap;
-use std::fs::{self};
+use std::{fs::{self}, fmt::Debug};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc};
 use tokio::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
+use log_derive::logfn_inputs;
 
 /// ChiselStore transport layer.
 ///
@@ -80,7 +81,7 @@ struct StoreConfig {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-struct Store<T: StoreTransport + Send + Sync> {
+struct Store<T: StoreTransport + Send + Sync + Debug> {
     /// ID of the node this Cluster objecti s on.
     this_id: usize,
     /// Is this node the leader?
@@ -99,7 +100,7 @@ struct Store<T: StoreTransport + Send + Sync> {
     results: HashMap<u64, Result<QueryResults, StoreError>>,
 }
 
-impl<T: StoreTransport + Send + Sync> Store<T> {
+impl<T: StoreTransport + Send + Sync + Debug> Store<T> {
     pub fn new(this_id: usize, transport: T, config: StoreConfig) -> Self {
         let mut conn_pool = vec![];
         let conn_pool_size = config.conn_pool_size;
@@ -161,7 +162,7 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
 }
 
 #[async_trait]
-impl<T: StoreTransport + Send + Sync> StateMachine<StoreCommand> for Store<T> {
+impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand> for Store<T> {
     async fn register_transition_state(&mut self, transition_id: usize, state: TransitionState) {
         if state == TransitionState::Applied {
             if let Some(completion) = self.command_completions.remove(&(transition_id as u64)) {
@@ -188,7 +189,7 @@ impl<T: StoreTransport + Send + Sync> StateMachine<StoreCommand> for Store<T> {
     }
 }
 
-impl<T: StoreTransport + Send + Sync> Cluster<StoreCommand> for Store<T> {
+impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand> for Store<T> {
     fn register_leader(&mut self, leader_id: Option<ReplicaID>) {
         if let Some(id) = leader_id {
             self.leader = Some(id);
@@ -208,6 +209,7 @@ impl<T: StoreTransport + Send + Sync> Cluster<StoreCommand> for Store<T> {
         self.transport.send(to_id, message);
     }
 
+    #[logfn_inputs(Debug)]
     fn receive_messages(&mut self) -> Vec<Message<StoreCommand>> {
         let cur = self.pending_messages.clone();
         self.pending_messages = Vec::new();
@@ -224,7 +226,7 @@ type StoreReplica<T> = Replica<Store<T>, StoreCommand, Store<T>, FileStore>;
 /// ChiselStore server.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct StoreServer<T: StoreTransport + Send + Sync> {
+pub struct StoreServer<T: StoreTransport + Send + Sync + Debug> {
     next_cmd_id: AtomicU64,
     store: Arc<Mutex<Store<T>>>,
     #[derivative(Debug = "ignore")]
@@ -260,7 +262,7 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(500);
 const MIN_ELECTION_TIMEOUT: Duration = Duration::from_millis(750);
 const MAX_ELECTION_TIMEOUT: Duration = Duration::from_millis(950);
 
-impl<T: StoreTransport + Send + Sync> StoreServer<T> {
+impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
     /// Start a new server as part of a ChiselStore cluster.
     pub async fn start(this_id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
         println!("Store Sever start!");
