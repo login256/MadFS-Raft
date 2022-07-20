@@ -35,8 +35,7 @@ fn node_rpc_addr(id: usize) -> String {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    info!("test");
-    //println!("test");
+    info!("run");
     let opt = Opt::from_args();
     let (host, port) = node_authority(opt.id);
     let rpc_listen_addr = format!("{}:{}", host, port).parse().unwrap();

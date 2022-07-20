@@ -406,6 +406,11 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         cluster.pending_messages.push(msg);
         self.message_notifier_tx.send(()).unwrap();
     }
+
+    /// If it is a leader
+    pub async fn is_leader(&self) -> bool {
+        return self.store.lock().await.is_leader();
+    }
 }
 
 fn is_read_statement(stmt: &str) -> bool {

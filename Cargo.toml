@@ -25,6 +25,7 @@ log-derive = "0.4.1"
 madsim = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea" }
 tokio = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea", package = "madsim-tokio", features=["full"] }
 tonic = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea", package = "madsim-tonic" }
+futures = "0.3"
 #madsim = { version = "=0.2.0-alpha.3", features=["macros"]}
 #tokio = { version = "=0.2.0-alpha.3", package = "madsim-tokio", features=["full", "macros"] }
 #tonic = { version = "=0.2.0-alpha.3", package = "madsim-tonic" }
