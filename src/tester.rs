@@ -5,16 +5,17 @@ use crate::{
     rpc::{RpcService, RpcTransport},
     StoreServer,
 };
-use log::debug;
+use log::{debug, trace};
 use log::info;
-use madsim::export::futures::SinkExt;
-use madsim::net::{rpc, NetSim};
+use log_derive::{logfn_inputs, logfn};
+use madsim::net::NetSim;
 use madsim::plugin::simulator;
 use madsim::task::NodeId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tonic::transport::{channel, Channel, Server};
+use tonic::transport::Server;
 
 use madsim::runtime::{Handle, NodeHandle};
 
@@ -48,9 +49,9 @@ struct MadRaft {
 }
 
 impl MadRaft {
-    pub async fn build(id: usize, peers: Vec<usize>) -> Self {
+    pub async fn build(id: usize, peers: Vec<usize>, path: Option<PathBuf>) -> Self {
         let transport = RpcTransport::new(Box::new(node_rpc_addr));
-        let server = StoreServer::start(id, peers.clone(), transport)
+        let server = StoreServer::start(id, peers.clone(), transport, path)
             .await
             .unwrap();
         let server = Arc::new(server);
@@ -62,23 +63,23 @@ impl MadRaft {
     }
 
     pub async fn run(&self) {
-        let f = {
-            let server = self.server.clone();
-            tokio::task::spawn(async move {
-                server.run().await;
-            })
-        };
         let addr = rpc_listen_addr(self.id).parse::<SocketAddr>().unwrap();
         let rpc = self.get_rpc_service();
         let g = {
             let id = self.id;
             tokio::task::spawn(async move {
-                println!("RPC listening to {} ...", rpc_listen_addr(id));
+                info!("RPC listening to {} ...", rpc_listen_addr(id));
                 let ret = Server::builder()
                     .add_service(RpcServer::new(rpc))
                     .serve(addr)
                     .await;
                 ret
+            })
+        };
+        let f = {
+            let server = self.server.clone();
+            tokio::task::spawn(async move {
+                server.run().await;
             })
         };
         let results = tokio::try_join!(f, g).unwrap();
@@ -88,6 +89,7 @@ impl MadRaft {
 
 pub struct Tester {
     handle: Handle,
+    temp_path: PathBuf,
     n: usize,
     ids: Vec<usize>,
     node_ids: Vec<NodeId>,
@@ -106,7 +108,11 @@ pub struct Tester {
 
 impl Tester {
     pub async fn new(n: usize, unreliable: bool, maxraftstate: Option<usize>) -> Tester {
+        info!("Create Raft. n:{n}, unreliable:{unreliable}");
         let handle = Handle::current();
+        let temp_dir = tempfile::TempDir::new_in("./test_data").unwrap();
+        let temp_path = temp_dir.into_path(); //temp_dir.path().to_path_buf();
+        info!("{:?}", temp_path);
         if unreliable {
             madsim::plugin::simulator::<madsim::net::NetSim>().update_config(|cfg| {
                 cfg.packet_loss_rate = 0.1;
@@ -117,6 +123,7 @@ impl Tester {
         servers.resize_with(n, || None);
         let mut tester = Tester {
             handle,
+            temp_path,
             n,
             ids: (1..=n).collect(),
             node_ids: vec![],
@@ -135,11 +142,32 @@ impl Tester {
                 .handle
                 .create_node()
                 .name(format!("server{}", tester.ids[i]))
-                .ip(rpc_listen_addr(i).parse::<SocketAddr>().unwrap().ip())
+                .ip(rpc_listen_addr(tester.ids[i])
+                    .parse::<SocketAddr>()
+                    .unwrap()
+                    .ip())
                 .build();
             tester.node_ids.push(node.id());
             tester.start_server(i).await;
         }
+        let temp_node = tester
+            .handle
+            .create_node()
+            .name("init client")
+            .ip([11, 11, 11, 11].into())
+            .build();
+        let cl = KvClient::new(
+            tester
+                .ids
+                .clone()
+                .iter()
+                .map(|&x| rpc_listen_addr(x).parse::<SocketAddr>().unwrap())
+                .collect(),
+        );
+        let x = temp_node.spawn(async move {
+            cl.init().await;
+        });
+        tokio::join!(x);
         tester
     }
 
@@ -266,7 +294,7 @@ impl Tester {
         self.handle.restart(self.node_ids[i]);
         let mut peers = self.ids.clone();
         peers.retain(|x| *x != self.ids[i]);
-        let raft = Arc::new(MadRaft::build(self.ids[i], peers).await);
+        let raft = Arc::new(MadRaft::build(self.ids[i], peers, Some(self.temp_path.clone())).await);
         let node = self.handle.get_node(self.node_ids[i]).unwrap();
         let traft = raft.clone();
         node.spawn(async move {
@@ -352,34 +380,52 @@ impl KvClient {
         }
     }
 
+    pub async fn init(&self) {
+        info!("init");
+        self.send("CREATE TABLE kvtable(key TEXT PRIMARY KEY, value TEXT);".to_string())
+            .await;
+        info!("init finish");
+    }
+
     /// fetch the current value for a key.
     /// returns "" if the key does not exist.
     /// keeps trying forever in the face of all other errors.
     pub async fn get(&self, key: String) -> String {
-        self.send(format!("select value from kvtable where key=\"{}\"", key).to_string())
-            .await
+        debug!("get {key}");
+        let res = self.send(format!("SELECT value FROM kvtable WHERE key=\"{}\";", key).to_string())
+            .await;
+        debug!("get result {res}");
+        res
     }
 
     pub async fn put(&self, key: String, value: String) {
+        debug!("put {key}: {value}");
         self.send(
             format!(
-                "update kvtable set value=\"{}\" where key=\"{}\"",
-                value, key
+                "INSERT INTO kvtable (key, value) \
+                VALUES (\"{}\", \"{}\") \
+                ON CONFLICT(key) DO UPDATE SET value = \"{}\";",
+                key, value, value,
             )
             .to_string(),
         )
         .await;
+        debug!("put finish");
     }
 
     pub async fn append(&self, key: String, value: String) {
+        debug!("append {key} {value}");
         self.send(
             format!(
-                "insert into kvtable (key, value) values (\"{}\", \"{}\")",
-                key, value
+                "INSERT INTO kvtable (key, value) \
+                VALUES (\"{}\", \"{}\") \
+                ON CONFLICT(key) DO UPDATE SET value = value || \"{}\";",
+                key, value, value,
             )
             .to_string(),
         )
         .await;
+        debug!("append finish!");
     }
 }
 

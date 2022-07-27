@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use crossbeam::queue::ArrayQueue;
 use derivative::Derivative;
 use little_raft::message::Message;
+use log::debug;
 use madsim::collections::HashMap;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -104,6 +105,7 @@ impl RpcTransport {
 #[async_trait]
 impl StoreTransport for RpcTransport {
     fn send(&self, to_id: usize, msg: Message<StoreCommand>) {
+        debug!("Send message to {to_id} with msg {:?}", msg);
         match msg {
             Message::AppendEntryRequest {
                 from_id,

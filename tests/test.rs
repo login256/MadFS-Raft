@@ -44,7 +44,7 @@ mod test {
     impl MadRaft {
         pub async fn build(id: usize, peers: Vec<usize>) -> Result<Self> {
             let transport = RpcTransport::new(Box::new(node_rpc_addr));
-            let server = StoreServer::start(id, peers.clone(), transport).await?;
+            let server = StoreServer::start(id, peers.clone(), transport, None).await?;
             let server = Arc::new(server);
             Ok(MadRaft { id, peers, server })
         }

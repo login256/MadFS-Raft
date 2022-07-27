@@ -11,17 +11,21 @@ use little_raft::{
     replica::{Replica, ReplicaID},
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
+use log::{debug, info, trace};
 //use log::info;
 use log_derive::logfn_inputs;
 use madsim::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{
     fmt::Debug,
     fs::{self},
+};
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
@@ -212,8 +216,9 @@ impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand> for Store<T>
         self.transport.send(to_id, message);
     }
 
-    #[logfn_inputs(Debug)]
+    //#[logfn_inputs(Debug)]
     fn receive_messages(&mut self) -> Vec<Message<StoreCommand>> {
+        debug!("recive message!");
         let cur = self.pending_messages.clone();
         self.pending_messages = Vec::new();
         cur
@@ -271,10 +276,18 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         this_id: usize,
         peers: Vec<usize>,
         transport: T,
+        path: Option<PathBuf>,
     ) -> Result<Self, StoreError> {
-        println!("Store Sever start!");
+        debug!("Store Sever start!");
         let config = StoreConfig { conn_pool_size: 20 };
-        let filestore = Arc::new(Mutex::new(FileStore::new(Some(this_id.to_string()))));
+        let path = match path {
+            Some(path) => {
+                path.into_os_string().into_string().unwrap() + "/" + this_id.to_string().as_str()
+            }
+            None => this_id.to_string(),
+        };
+        let path = PathBuf::from(path);
+        let filestore = Arc::new(Mutex::new(FileStore::new(Some(path))));
         let sss = format!("node{}.db", this_id);
         let _res = fs::remove_file(sss.as_str());
         let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
@@ -284,7 +297,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         };
         let (message_notifier_tx, message_notifier_rx) = unbounded_channel();
         let (transition_notifier_tx, transition_notifier_rx) = unbounded_channel();
-        println!("create replica!");
+        debug!("create replica!");
         let replica = Replica::new(
             this_id,
             peers,
@@ -296,7 +309,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
             filestore,
         )
         .await;
-        println!("replica create end!");
+        debug!("replica create end!");
         let message_notifier_rx = Mutex::new(message_notifier_rx);
         let transition_notifier_rx = Mutex::new(transition_notifier_rx);
         let replica = Arc::new(Mutex::new(replica));
@@ -402,6 +415,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
 
     /// Receive a message from the ChiselStore cluster.
     pub async fn recv_msg(&self, msg: little_raft::message::Message<StoreCommand>) {
+        trace!("recv_msg {:?}", msg);
         let mut cluster = self.store.lock().await;
         cluster.pending_messages.push(msg);
         self.message_notifier_tx.send(()).unwrap();

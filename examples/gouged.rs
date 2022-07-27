@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     let (host, port) = node_authority(opt.id);
     let rpc_listen_addr = format!("{}:{}", host, port).parse().unwrap();
     let transport = RpcTransport::new(Box::new(node_rpc_addr));
-    let server = StoreServer::start(opt.id, opt.peers, transport).await?;
+    let server = StoreServer::start(opt.id, opt.peers, transport, None).await?;
     let server = Arc::new(server);
     info!("begin");
     let f = {

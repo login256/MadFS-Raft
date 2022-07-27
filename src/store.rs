@@ -5,14 +5,14 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
     os::unix::prelude::AsRawFd,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use crate::server::StoreCommand;
 use little_raft::message::LogEntry;
 use little_raft::state_machine::HardState;
 use little_raft::state_machine::Storage;
-use log::info;
+use log::{debug, info};
 use nix::unistd;
 use serde::{Deserialize, Serialize};
 /*
@@ -68,14 +68,22 @@ pub struct FileStore {
 impl FileStore {
     /// get a new FileStore
     /// db file will be clear
-    pub fn new(path: Option<String>) -> Self {
-        println!("Store create!");
+    pub fn new(path: Option<PathBuf>) -> Self {
+        debug!("Store create!");
         let path = match path {
-            Some(path) => path,
+            Some(path) => path.into_os_string().into_string().unwrap(),
             None => String::from("."),
         };
         let p = path.clone() + "/HardState/data.txt";
-        let var_path = Path::new(OsStr::new(p.as_str()));
+        let var_path = Path::new(&p);
+        fs::create_dir_all(var_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                info!("{:?} already existed", var_path.parent());
+            }
+            e => {
+                panic!("{:?}", e);
+            }
+        });
         let var_file = OpenOptions::new().read(true).open(var_path);
         let (cur_term, cur_vote) = match var_file {
             Ok(var_file) => {
@@ -121,6 +129,14 @@ impl FileStore {
 
         let p = path.clone() + "/Log/log.txt";
         let log_path = Path::new(OsStr::new(p.as_str()));
+        fs::create_dir_all(log_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                info!("{:?} already existed", log_path.parent());
+            }
+            e => {
+                panic!("{:?}", e);
+            }
+        });
         let log_file = OpenOptions::new().read(true).open(log_path);
         let (first_index, last_index) = match log_file {
             Ok(log_file) => {
@@ -160,7 +176,7 @@ impl FileStore {
             .append(true)
             .open(log_path)
             .unwrap();
-        println!("Store create end!");
+        debug!("Store create end!");
         let re = FileStore {
             path: path,
             var_file: var_file,
@@ -170,7 +186,7 @@ impl FileStore {
             first_index: first_index,
             last_index: last_index,
         };
-        println!("{:?}", re);
+        debug!("{:?}", re);
         re
     }
 }

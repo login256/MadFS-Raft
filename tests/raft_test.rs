@@ -1,5 +1,6 @@
 use chiselstore::tester::Tester;
 use futures::{future, select, FutureExt};
+use log_derive::{logfn, logfn_inputs};
 use madsim::{
     rand::{self, prelude::SliceRandom, Rng},
     task,
@@ -64,6 +65,7 @@ fn check_concurrent_appends(v: &str, counts: &[usize]) {
 ///   the clients and servers.
 /// - If maxraftstate is a positive number, the size of the state for Raft
 ///   (i.e., log size) shouldn't exceed `2 * maxraftstate`.
+#[logfn_inputs(info)]
 async fn generic_test(
     part: &str,
     nclients: usize,
@@ -93,7 +95,6 @@ async fn generic_test(
     } else {
         title += "one client";
     }
-    info!("{} ({})", title, part);
 
     const NSERVERS: usize = 5;
     let t = Arc::new(Tester::new(NSERVERS, unreliable, maxraftstate).await);
