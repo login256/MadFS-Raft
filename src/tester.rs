@@ -5,9 +5,9 @@ use crate::{
     rpc::{RpcService, RpcTransport},
     StoreServer,
 };
-use log::{debug, trace};
 use log::info;
-use log_derive::{logfn_inputs, logfn};
+use log::{debug, trace};
+use log_derive::{logfn, logfn_inputs};
 use madsim::net::NetSim;
 use madsim::plugin::simulator;
 use madsim::task::NodeId;
@@ -392,7 +392,8 @@ impl KvClient {
     /// keeps trying forever in the face of all other errors.
     pub async fn get(&self, key: String) -> String {
         debug!("get {key}");
-        let res = self.send(format!("SELECT value FROM kvtable WHERE key=\"{}\";", key).to_string())
+        let res = self
+            .send(format!("SELECT value FROM kvtable WHERE key=\"{}\";", key).to_string())
             .await;
         debug!("get result {res}");
         res
