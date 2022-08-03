@@ -165,6 +165,7 @@ impl Tester {
                 .collect(),
         );
         let x = temp_node.spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
             cl.init().await;
         });
         tokio::join!(x);
@@ -235,7 +236,7 @@ impl Tester {
 
     /// Sets up 2 partitions with connectivity between servers in each  partition.
     pub fn partition(&self, p1: &[usize], p2: &[usize]) {
-        debug!("partition servers into: {:?} {:?}", p1, p2);
+        info!("partition servers into: {:?} {:?}", p1, p2);
         for &i in p1 {
             self.disconnect(i, p2);
             self.connect(i, p1);
@@ -323,6 +324,7 @@ impl Tester {
         p1.swap_remove(leader);
         let mut p2 = p1.split_off(self.n / 2 + 1);
         p2.push(leader);
+        info!("Make partition into {:?}, {:?}", p1, p2);
         (p1, p2)
     }
 
@@ -366,6 +368,7 @@ impl KvClient {
                 sql: sql.clone(),
                 consistency: Consistency::Strong as i32,
             });
+            info!("Client send {sql} to server {cur}.");
             let response = client.execute(query).await;
             if let Ok(response) = response {
                 let response = response.into_inner();

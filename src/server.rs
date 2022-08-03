@@ -171,7 +171,7 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
 #[async_trait]
 impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand> for Store<T> {
     async fn register_transition_state(&mut self, transition_id: usize, state: TransitionState) {
-        if state == TransitionState::Applied {
+        if state == TransitionState::Committed {
             if let Some(completion) = self.command_completions.remove(&(transition_id as u64)) {
                 completion.notify();
             }
