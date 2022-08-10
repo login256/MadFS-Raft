@@ -1,5 +1,5 @@
 [package]
-name = "chiselstore"
+name = "madsql"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,8 +12,8 @@ async-mutex = "1.4.0"
 crossbeam-channel = "0.5.1"
 crossbeam = "0.8.1"
 derivative = "2.2.0"
-#little_raft = {git = "https://github.com/login256/little-raft", rev = "2447185"}
-little_raft = {path = "../little-raft/little_raft"}
+little_raft = {git = "https://github.com/login256/little-raft", branch = "try_async"}
+#little_raft = {path = "../little-raft/little_raft"}
 prost = "0.10.0"
 sqlite = "0.26.0"
 thiserror = "1.0.30"
