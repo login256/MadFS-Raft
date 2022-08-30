@@ -1,6 +1,6 @@
 use anyhow::Result;
-use chiselstore::rpc::proto::rpc_server::RpcServer;
-use chiselstore::{
+use madfs_raft::rpc::proto::rpc_server::RpcServer;
+use madfs_raft::{
     rpc::{RpcService, RpcTransport},
     StoreServer,
 };

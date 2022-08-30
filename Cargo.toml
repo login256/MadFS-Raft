@@ -1,5 +1,5 @@
 [package]
-name = "madsql"
+name = "madfs_raft"
 version = "0.1.0"
 edition = "2021"
 
