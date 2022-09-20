@@ -1,10 +1,10 @@
 use anyhow::Result;
+use log::info;
 use madfs_raft::rpc::proto::rpc_server::RpcServer;
 use madfs_raft::{
     rpc::{RpcService, RpcTransport},
     StoreServer,
 };
-use log::info;
 use std::sync::Arc;
 use structopt::StructOpt;
 use tonic::transport::Server;

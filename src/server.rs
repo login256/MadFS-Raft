@@ -246,7 +246,7 @@ pub struct StoreServer<T: StoreTransport + Send + Sync + Debug> {
 }
 
 /// Query row.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueryRow {
     /// Column values of the row.
     pub values: Vec<String>,
@@ -259,7 +259,7 @@ impl QueryRow {
 }
 
 /// Query results.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueryResults {
     /// Query result rows.
     pub rows: Vec<QueryRow>,
