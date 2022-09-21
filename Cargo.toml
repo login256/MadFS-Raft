@@ -14,7 +14,7 @@ crossbeam = "0.8.1"
 derivative = "2.2.0"
 little_raft = {git = "https://github.com/login256/little-raft", branch = "try_async"}
 #little_raft = {path = "../little-raft/little_raft"}
-prost = "0.10.0"
+prost = "0.11"
 sqlite = "0.26.0"
 thiserror = "1.0.30"
 serde = { version = "1.0.137", features = ["derive"] }
@@ -22,18 +22,16 @@ serde_json = "1.0"
 nix = "0.24.1"
 log = "0.4.17"
 log-derive = "0.4.1"
-madsim = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea" }
-tokio = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea", package = "madsim-tokio", features=["full"] }
-tonic = { git = "https://github.com/madsys-dev/madsim.git", rev = "f4972ea", package = "madsim-tonic" }
+madsim = "0.2"
+tokio = { version = "0.2", package = "madsim-tokio", features=["full"] }
+tonic = { version = "0.2", package = "madsim-tonic" }
 futures = "0.3"
-#madsim = { version = "=0.2.0-alpha.3", features=["macros"]}
-#tokio = { version = "=0.2.0-alpha.3", package = "madsim-tokio", features=["full", "macros"] }
-#tonic = { version = "=0.2.0-alpha.3", package = "madsim-tonic" }
 tempfile = "3.3.0"
 
 
 [build-dependencies]
-tonic-build = { version = "=0.2.0-alpha.1", package = "madsim-tonic-build" }
+tonic-build = { version = "0.2", package = "madsim-tonic-build" }
+prost-build = "0.11"
 
 [dev-dependencies]
 anyhow = { version = "1.0.45", features = ["backtrace"] }
