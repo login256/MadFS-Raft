@@ -160,7 +160,12 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
     conn.iterate(sql, |pairs| {
         let mut row = QueryRow::new();
         for &(_, value) in pairs.iter() {
-            row.values.push(value.unwrap().to_string());
+            match value {
+                Some(value) => {
+                    row.values.push(value.to_string());
+                },
+                None => (),
+            }
         }
         rows.push(row);
         true
