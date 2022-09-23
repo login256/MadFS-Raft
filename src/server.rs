@@ -12,8 +12,6 @@ use little_raft::{
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
 use log::{debug, info, trace};
-//use log::info;
-use log_derive::logfn_inputs;
 use madsim::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
@@ -163,7 +161,7 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
             match value {
                 Some(value) => {
                     row.values.push(value.to_string());
-                },
+                }
                 None => (),
             }
         }
@@ -331,6 +329,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
 
     /// Run the blocking event loop.
     pub async fn run(&self) {
+        info!("Start to run replica!");
         self.replica
             .lock()
             .await
