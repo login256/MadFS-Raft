@@ -12,8 +12,6 @@ use little_raft::{
     state_machine::{StateMachine, StateMachineTransition, TransitionState},
 };
 use log::{debug, info, trace};
-//use log::info;
-use log_derive::logfn_inputs;
 use madsim::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
@@ -160,7 +158,12 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
     conn.iterate(sql, |pairs| {
         let mut row = QueryRow::new();
         for &(_, value) in pairs.iter() {
-            row.values.push(value.unwrap().to_string());
+            match value {
+                Some(value) => {
+                    row.values.push(value.to_string());
+                }
+                None => (),
+            }
         }
         rows.push(row);
         true
@@ -246,7 +249,7 @@ pub struct StoreServer<T: StoreTransport + Send + Sync + Debug> {
 }
 
 /// Query row.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueryRow {
     /// Column values of the row.
     pub values: Vec<String>,
@@ -259,7 +262,7 @@ impl QueryRow {
 }
 
 /// Query results.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueryResults {
     /// Query result rows.
     pub rows: Vec<QueryRow>,
@@ -326,6 +329,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
 
     /// Run the blocking event loop.
     pub async fn run(&self) {
+        info!("Start to run replica!");
         self.replica
             .lock()
             .await

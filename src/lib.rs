@@ -97,6 +97,7 @@ pub mod errors;
 pub mod rpc;
 pub mod server;
 pub mod store;
+#[cfg(madsim)]
 pub mod tester;
 
 pub use errors::StoreError;
