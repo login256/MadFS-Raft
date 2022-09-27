@@ -35,6 +35,7 @@ fn node_rpc_addr(id: usize) -> String {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    env_logger::init();
     info!("run");
     let opt = Opt::from_args();
     let (host, port) = node_authority(opt.id);

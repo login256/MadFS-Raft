@@ -3,15 +3,15 @@
 use std::{
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::prelude::AsRawFd,
     path::{Path, PathBuf},
 };
 
-use crate::server::StoreCommand;
-use little_raft::message::LogEntry;
+use crate::server::{SnapShotFileData, StoreCommand};
 use little_raft::state_machine::HardState;
 use little_raft::state_machine::Storage;
+use little_raft::{message::LogEntry, state_machine::Snapshot};
 use log::{debug, info};
 use nix::unistd;
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,44 @@ impl FileStore {
         };
         debug!("{:?}", re);
         re
+    }
+
+    pub async fn save_snapshot(&mut self, snapshot: &Snapshot<SnapShotFileData>) {
+        let p = self.path.clone() + "/Snapshot/snapshot.bin";
+        let file_path = Path::new(&p);
+        fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                info!("{:?} already existed", file_path.parent());
+            }
+            e => {
+                panic!("{:?}", e);
+            }
+        });
+        let mut file = tempfile::NamedTempFile::new().unwrap(); //::tempfile().unwrap();
+        let b = serde_json::to_string(snapshot).unwrap();
+        file.write_all(b.as_bytes()).unwrap();
+        let file = file.persist(file_path).unwrap();
+        unistd::fsync(file.as_raw_fd()).unwrap();
+    }
+
+    pub async fn get_snapshot(&mut self) -> Option<Snapshot<SnapShotFileData>> {
+        let p = self.path.clone() + "/Snapshot/snapshot.bin";
+        let file_path = Path::new(&p);
+        let file = OpenOptions::new().read(true).open(file_path);
+        match file {
+            Ok(file) => {
+                let mut reader = BufReader::new(file);
+                let mut buffer = Vec::new();
+                reader.read_to_end(&mut buffer).unwrap();
+                Some(serde_json::from_slice::<Snapshot<SnapShotFileData>>(&buffer).unwrap())
+            }
+            Err(err) => match err.kind() {
+                std::io::ErrorKind::NotFound => None,
+                _ => {
+                    panic!("{:?}", err);
+                }
+            },
+        }
     }
 }
 

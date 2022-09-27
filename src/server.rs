@@ -9,13 +9,13 @@ use little_raft::{
     cluster::Cluster,
     message::Message,
     replica::{Replica, ReplicaID},
-    state_machine::{StateMachine, StateMachineTransition, TransitionState},
+    state_machine::{Snapshot, StateMachine, StateMachineTransition, TransitionState},
 };
 use log::{debug, info, trace};
+use log_derive::logfn_inputs;
 use madsim::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
-use std::sync::Arc;
 use std::time::Duration;
 use std::{
     fmt::Debug,
@@ -25,6 +25,7 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::{str::Bytes, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
 use tokio::sync::Mutex;
@@ -36,7 +37,7 @@ use tokio::sync::Mutex;
 #[async_trait]
 pub trait StoreTransport {
     /// Send a store command message `msg` to `to_id` node.
-    fn send(&self, to_id: usize, msg: Message<StoreCommand>);
+    fn send(&self, to_id: usize, msg: Message<StoreCommand, SnapShotFileData>);
 
     /// Delegate command to another node.
     async fn delegate(
@@ -86,7 +87,7 @@ struct StoreConfig {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-struct Store<T: StoreTransport + Send + Sync + Debug> {
+struct SqlStateMachine<T: StoreTransport + Send + Sync + Debug> {
     /// ID of the node this Cluster objecti s on.
     this_id: usize,
     /// Is this node the leader?
@@ -94,7 +95,7 @@ struct Store<T: StoreTransport + Send + Sync + Debug> {
     leader_exists: AtomicBool,
     waiters: Vec<Arc<Notify>>,
     /// Pending messages
-    pending_messages: Vec<Message<StoreCommand>>,
+    pending_messages: Vec<Message<StoreCommand, SnapShotFileData>>,
     /// Transport layer.
     transport: Arc<T>,
     #[derivative(Debug = "ignore")]
@@ -103,10 +104,16 @@ struct Store<T: StoreTransport + Send + Sync + Debug> {
     pending_transitions: Vec<StoreCommand>,
     command_completions: HashMap<u64, Arc<Notify>>,
     results: HashMap<u64, Result<QueryResults, StoreError>>,
+    file_store: Arc<Mutex<FileStore>>,
 }
 
-impl<T: StoreTransport + Send + Sync + Debug> Store<T> {
-    pub fn new(this_id: usize, transport: T, config: StoreConfig) -> Self {
+impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
+    pub fn new(
+        this_id: usize,
+        transport: T,
+        config: StoreConfig,
+        file_store: Arc<Mutex<FileStore>>,
+    ) -> Self {
         let mut conn_pool = vec![];
         let conn_pool_size = config.conn_pool_size;
         for _ in 0..conn_pool_size {
@@ -122,7 +129,7 @@ impl<T: StoreTransport + Send + Sync + Debug> Store<T> {
             conn_pool.push(Arc::new(Mutex::new(conn)));
         }
         let conn_idx = 0;
-        Store {
+        SqlStateMachine {
             this_id,
             leader: None,
             leader_exists: AtomicBool::new(false),
@@ -134,6 +141,7 @@ impl<T: StoreTransport + Send + Sync + Debug> Store<T> {
             pending_transitions: Vec::new(),
             command_completions: HashMap::new(),
             results: HashMap::new(),
+            file_store,
         }
     }
 
@@ -172,7 +180,9 @@ async fn query(conn: Arc<Mutex<Connection>>, sql: String) -> Result<QueryResults
 }
 
 #[async_trait]
-impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand> for Store<T> {
+impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapShotFileData>
+    for SqlStateMachine<T>
+{
     async fn register_transition_state(&mut self, transition_id: usize, state: TransitionState) {
         if state == TransitionState::Applied {
             if let Some(completion) = self.command_completions.remove(&(transition_id as u64)) {
@@ -197,9 +207,27 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand> for Sto
         self.pending_transitions = Vec::new();
         cur
     }
+
+    async fn get_snapshot(&mut self) -> Option<Snapshot<SnapShotFileData>> {
+        None
+    }
+
+    async fn create_snapshot(
+        &mut self,
+        last_included_index: usize,
+        last_included_term: usize,
+    ) -> Snapshot<SnapShotFileData> {
+        todo!()
+    }
+
+    async fn set_snapshot(&mut self, snapshot: Snapshot<SnapShotFileData>) {
+        todo!()
+    }
 }
 
-impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand> for Store<T> {
+impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand, SnapShotFileData>
+    for SqlStateMachine<T>
+{
     fn register_leader(&mut self, leader_id: Option<ReplicaID>) {
         if let Some(id) = leader_id {
             self.leader = Some(id);
@@ -215,12 +243,12 @@ impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand> for Store<T>
         }
     }
 
-    fn send_message(&mut self, to_id: usize, message: Message<StoreCommand>) {
+    fn send_message(&mut self, to_id: usize, message: Message<StoreCommand, SnapShotFileData>) {
         self.transport.send(to_id, message);
     }
 
-    //#[logfn_inputs(Debug)]
-    fn receive_messages(&mut self) -> Vec<Message<StoreCommand>> {
+    #[logfn_inputs(Info)]
+    fn receive_messages(&mut self) -> Vec<Message<StoreCommand, SnapShotFileData>> {
         debug!("recive message!");
         let cur = self.pending_messages.clone();
         self.pending_messages = Vec::new();
@@ -232,14 +260,15 @@ impl<T: StoreTransport + Send + Sync + Debug> Cluster<StoreCommand> for Store<T>
     }
 }
 
-type StoreReplica<T> = Replica<Store<T>, StoreCommand, Store<T>, FileStore>;
+type StoreReplica<T> =
+    Replica<SqlStateMachine<T>, StoreCommand, SqlStateMachine<T>, FileStore, SnapShotFileData>;
 
 /// ChiselStore server.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct StoreServer<T: StoreTransport + Send + Sync + Debug> {
     next_cmd_id: AtomicU64,
-    store: Arc<Mutex<Store<T>>>,
+    state_machine: Arc<Mutex<SqlStateMachine<T>>>,
     #[derivative(Debug = "ignore")]
     replica: Arc<Mutex<StoreReplica<T>>>,
     message_notifier_rx: Mutex<Receiver<()>>,
@@ -293,7 +322,12 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(path))));
         let sss = format!("node{}.db", this_id);
         let _res = fs::remove_file(sss.as_str());
-        let store = Arc::new(Mutex::new(Store::new(this_id, transport, config)));
+        let store = Arc::new(Mutex::new(SqlStateMachine::new(
+            this_id,
+            transport,
+            config,
+            filestore.clone(),
+        )));
         let noop = StoreCommand {
             id: NOP_TRANSITION_ID,
             sql: "".to_string(),
@@ -306,10 +340,11 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
             peers,
             store.clone(),
             store.clone(),
+            0,
             noop,
             HEARTBEAT_TIMEOUT,
             (MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT),
-            filestore,
+            filestore.clone(),
         )
         .await;
         debug!("replica create end!");
@@ -318,7 +353,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         let replica = Arc::new(Mutex::new(replica));
         Ok(StoreServer {
             next_cmd_id: AtomicU64::new(1), // zero is reserved for no-op.
-            store,
+            state_machine: store,
             replica,
             message_notifier_rx,
             message_notifier_tx,
@@ -349,6 +384,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         // If the statement is a read statement, let's use whatever
         // consistency the user provided; otherwise fall back to strong
         // consistency.
+        info!("Got query {:?}", stmt.as_ref());
         let consistency = if is_read_statement(stmt.as_ref()) {
             consistency
         } else {
@@ -358,7 +394,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
             Consistency::Strong => {
                 self.wait_for_leader().await;
                 let (delegate, leader, transport) = {
-                    let store = self.store.lock().await;
+                    let store = self.state_machine.lock().await;
                     (!store.is_leader(), store.leader, store.transport.clone())
                 };
                 if delegate {
@@ -370,7 +406,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                     return Err(StoreError::NotLeader);
                 }
                 let (notify, id) = {
-                    let mut store = self.store.lock().await;
+                    let mut store = self.state_machine.lock().await;
                     let id = self.next_cmd_id.fetch_add(1, Ordering::SeqCst);
                     let cmd = StoreCommand {
                         id: id as usize,
@@ -383,12 +419,12 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                 };
                 self.transition_notifier_tx.send(()).unwrap();
                 notify.notified().await;
-                let results = self.store.lock().await.results.remove(&id).unwrap();
+                let results = self.state_machine.lock().await.results.remove(&id).unwrap();
                 results?
             }
             Consistency::RelaxedReads => {
                 let conn = {
-                    let mut store = self.store.lock().await;
+                    let mut store = self.state_machine.lock().await;
                     store.get_connection()
                 };
                 query(conn, stmt.as_ref().to_string()).await?
@@ -401,7 +437,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
     pub async fn wait_for_leader(&self) {
         loop {
             let notify = {
-                let mut store = self.store.lock().await;
+                let mut store = self.state_machine.lock().await;
                 if store.leader_exists.load(Ordering::SeqCst) {
                     break;
                 }
@@ -409,7 +445,13 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                 store.waiters.push(notify.clone());
                 notify
             };
-            if self.store.lock().await.leader_exists.load(Ordering::SeqCst) {
+            if self
+                .state_machine
+                .lock()
+                .await
+                .leader_exists
+                .load(Ordering::SeqCst)
+            {
                 break;
             }
             // TODO: add a timeout and fail if necessary
@@ -418,19 +460,28 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
     }
 
     /// Receive a message from the ChiselStore cluster.
-    pub async fn recv_msg(&self, msg: little_raft::message::Message<StoreCommand>) {
+    pub async fn recv_msg(
+        &self,
+        msg: little_raft::message::Message<StoreCommand, SnapShotFileData>,
+    ) {
         trace!("recv_msg {:?}", msg);
-        let mut cluster = self.store.lock().await;
+        let mut cluster = self.state_machine.lock().await;
         cluster.pending_messages.push(msg);
         self.message_notifier_tx.send(()).unwrap();
     }
 
     /// If it is a leader
     pub async fn is_leader(&self) -> bool {
-        return self.store.lock().await.is_leader();
+        return self.state_machine.lock().await.is_leader();
     }
 }
 
 fn is_read_statement(stmt: &str) -> bool {
     stmt.to_lowercase().starts_with("select")
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SnapShotFileData {
+    #[serde(with = "serde_bytes")]
+    sqlite: Vec<u8>,
 }

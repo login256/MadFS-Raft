@@ -1,4 +1,6 @@
-use chiselstore::tester::Tester;
+#![cfg(madsim)]
+
+use madfs_raft::tester::Tester;
 use futures::{future, select, FutureExt};
 use log_derive::{logfn, logfn_inputs};
 use madsim::{

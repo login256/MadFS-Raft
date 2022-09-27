@@ -1,6 +1,7 @@
 //! ChiselStore RPC module.
 
 use crate::rpc::proto::rpc_server::Rpc;
+use crate::server::SnapShotFileData;
 use crate::{Consistency, StoreCommand, StoreServer, StoreTransport};
 use async_mutex::Mutex;
 use async_trait::async_trait;
@@ -19,8 +20,8 @@ pub mod proto {
 
 use proto::rpc_client::RpcClient;
 use proto::{
-    AppendEntriesRequest, AppendEntriesResponse, LogEntry, Query, QueryResults, QueryRow, Void,
-    VoteRequest, VoteResponse,
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    LogEntry, Query, QueryResults, QueryRow, Void, VoteRequest, VoteResponse,
 };
 
 type NodeAddrFn = dyn Fn(usize) -> String + Send + Sync;
@@ -58,7 +59,6 @@ impl ConnectionPool {
             None => match RpcClient::connect(addr.clone()).await {
                 Ok(e) => Some(e),
                 Err(e) => {
-                    println!("connect to {} error, {:?}", addr, e);
                     error!("connect to {} error, {:?}", addr, e);
                     None
                 }
@@ -118,7 +118,7 @@ impl RpcTransport {
 
 #[async_trait]
 impl StoreTransport for RpcTransport {
-    fn send(&self, to_id: usize, msg: Message<StoreCommand>) {
+    fn send(&self, to_id: usize, msg: Message<StoreCommand, SnapShotFileData>) {
         debug!("Send message to {to_id} with msg {:?}", msg);
         match msg {
             Message::AppendEntryRequest {
@@ -241,6 +241,24 @@ impl StoreTransport for RpcTransport {
                         client.respond_to_vote(response).await.unwrap();
                     }
                 });
+            }
+            Message::InstallSnapshotRequest {
+                from_id,
+                term,
+                last_included_index,
+                last_included_term,
+                offset,
+                data,
+                done,
+            } => {
+                todo!()
+            }
+            Message::InstallSnapshotResponse {
+                from_id,
+                term,
+                last_included_index,
+            } => {
+                todo!()
             }
         }
     }
@@ -401,6 +419,25 @@ impl Rpc for RpcService {
         };
         let server = self.server.clone();
         server.recv_msg(msg).await;
+        Ok(Response::new(Void {}))
+    }
+
+    async fn install_snapshot(
+        &self,
+        request: tonic::Request<InstallSnapshotRequest>,
+    ) -> Result<tonic::Response<Void>, tonic::Status> {
+        let msg = request.into_inner();
+        let from_id = msg.from_id as usize;
+        let term = msg.term as usize;
+        let last_included_index = msg.last_included_index as usize;
+        let last_included_term = msg.last_included_term as usize;
+        Ok(Response::new(Void {}))
+    }
+
+    async fn respond_to_install_snapshot(
+        &self,
+        request: tonic::Request<InstallSnapshotResponse>,
+    ) -> Result<tonic::Response<Void>, tonic::Status> {
         Ok(Response::new(Void {}))
     }
 }
