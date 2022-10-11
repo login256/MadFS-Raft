@@ -251,14 +251,51 @@ impl StoreTransport for RpcTransport {
                 data,
                 done,
             } => {
-                todo!()
+                let from_id = from_id as u64;
+                let term = term as u64;
+                let last_included_index = last_included_index as u64;
+                let last_included_term = last_included_term as u64;
+                let offset = offset as u64;
+                let data_sqlite = data.sqlite;
+                let request = InstallSnapshotRequest {
+                    from_id,
+                    term,
+                    last_included_index,
+                    last_included_term,
+                    offset,
+                    data_sqlite,
+                    done,
+                };
+                let peer = (self.node_addr)(to_id);
+                let pool = self.connections.clone();
+                tokio::task::spawn(async move {
+                    if let Some(mut client) = pool.connection(peer).await {
+                        let req = tonic::Request::new(request.clone());
+                        client.conn.install_snapshot(req).await.unwrap();
+                    }
+                });
             }
             Message::InstallSnapshotResponse {
                 from_id,
                 term,
                 last_included_index,
             } => {
-                todo!()
+                let from_id = from_id as u64;
+                let term = term as u64;
+                let last_included_index = last_included_index as u64;
+                let request = InstallSnapshotResponse {
+                    from_id,
+                    term,
+                    last_included_index,
+                };
+                let peer = (self.node_addr)(to_id);
+                let pool = self.connections.clone();
+                tokio::task::spawn(async move {
+                    if let Some(mut client) = pool.connection(peer).await {
+                        let req = tonic::Request::new(request.clone());
+                        client.conn.respond_to_install_snapshot(req).await.unwrap();
+                    }
+                });
             }
         }
     }
@@ -431,6 +468,22 @@ impl Rpc for RpcService {
         let term = msg.term as usize;
         let last_included_index = msg.last_included_index as usize;
         let last_included_term = msg.last_included_term as usize;
+        let offset = msg.offset as usize;
+        let data_sqlite = msg.data_sqlite;
+        let done = msg.done;
+        let msg = little_raft::message::Message::InstallSnapshotRequest {
+            from_id,
+            term,
+            last_included_index,
+            last_included_term,
+            offset,
+            data: SnapShotFileData {
+                sqlite: data_sqlite,
+            },
+            done,
+        };
+        let server = self.server.clone();
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 
@@ -438,6 +491,17 @@ impl Rpc for RpcService {
         &self,
         request: tonic::Request<InstallSnapshotResponse>,
     ) -> Result<tonic::Response<Void>, tonic::Status> {
+        let msg = request.into_inner();
+        let from_id = msg.from_id as usize;
+        let term = msg.term as usize;
+        let last_included_index = msg.last_included_index as usize;
+        let msg = little_raft::message::Message::InstallSnapshotResponse {
+            from_id,
+            term,
+            last_included_index,
+        };
+        let server = self.server.clone();
+        server.recv_msg(msg).await;
         Ok(Response::new(Void {}))
     }
 }

@@ -14,12 +14,18 @@ use little_raft::{
 use log::{debug, info, trace};
 use log_derive::logfn_inputs;
 use madsim::collections::HashMap;
+use nix::unistd;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
-use std::time::Duration;
 use std::{
     fmt::Debug,
     fs::{self},
+};
+use std::{
+    fs::OpenOptions,
+    io::{BufReader, Read, Write},
+    os::unix::prelude::AsRawFd,
+    time::Duration,
 };
 use std::{
     path::PathBuf,
@@ -105,6 +111,7 @@ struct SqlStateMachine<T: StoreTransport + Send + Sync + Debug> {
     command_completions: HashMap<u64, Arc<Notify>>,
     results: HashMap<u64, Result<QueryResults, StoreError>>,
     file_store: Arc<Mutex<FileStore>>,
+    config: StoreConfig,
 }
 
 impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
@@ -142,6 +149,7 @@ impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
             command_completions: HashMap::new(),
             results: HashMap::new(),
             file_store,
+            config,
         }
     }
 
@@ -157,6 +165,26 @@ impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
         let conn = &self.conn_pool[idx];
         self.conn_idx += 1;
         conn.clone()
+    }
+
+    pub fn open_connection(&mut self) {
+        let mut conn_pool = vec![];
+        let conn_pool_size = self.config.conn_pool_size;
+        for _ in 0..conn_pool_size {
+            // FIXME: Let's use the 'memdb' VFS of SQLite, which allows concurrent threads
+            // accessing the same in-memory database.
+            let flags = OpenFlags::new()
+                .set_read_write()
+                .set_create()
+                .set_no_mutex();
+            let mut conn =
+                Connection::open_with_flags(format!("node{}.db", self.this_id), flags).unwrap();
+            conn.set_busy_timeout(5000).unwrap();
+            conn_pool.push(Arc::new(Mutex::new(conn)));
+        }
+        let conn_idx = 0;
+        self.conn_pool = conn_pool;
+        self.conn_idx = conn_idx;
     }
 }
 
@@ -209,7 +237,33 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
     }
 
     async fn get_snapshot(&mut self) -> Option<Snapshot<SnapShotFileData>> {
-        None
+        let file_store = self.file_store.clone();
+        let file_store = file_store.lock().await;
+        let snapshot = file_store.get_snapshot().await;
+        if let Some(snapshot) = &snapshot {
+            {
+                let conn = self.get_connection();
+                let conn = conn.lock().await;
+                self.conn_pool = vec![];
+                unsafe {
+                    sqlite3_sys::sqlite3_wal_checkpoint_v2(
+                        conn.as_raw().clone(),
+                        std::ptr::null(),
+                        sqlite3_sys::SQLITE_CHECKPOINT_TRUNCATE,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    );
+                };
+            }
+            let mut file = tempfile::NamedTempFile::new().unwrap();
+            file.write_all(&snapshot.data.sqlite).unwrap();
+            {
+                let file = file.persist(format!("node{}.db", self.this_id)).unwrap();
+                unistd::fsync(file.as_raw_fd()).unwrap();
+            }
+            self.open_connection();
+        }
+        snapshot
     }
 
     async fn create_snapshot(
@@ -217,11 +271,56 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
         last_included_index: usize,
         last_included_term: usize,
     ) -> Snapshot<SnapShotFileData> {
-        todo!()
+        let conn = self.get_connection();
+        let conn = conn.lock().await;
+        unsafe {
+            sqlite3_sys::sqlite3_wal_checkpoint_v2(
+                conn.as_raw().clone(),
+                std::ptr::null(),
+                sqlite3_sys::SQLITE_CHECKPOINT_TRUNCATE,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        };
+        let file = OpenOptions::new()
+            .read(true)
+            .open(format!("node{}.db", self.this_id))
+            .unwrap();
+        let mut reader = BufReader::new(file);
+        let mut buffer = Vec::new();
+        reader.read_to_end(&mut buffer).unwrap();
+        let snapshot = Snapshot {
+            last_included_index: last_included_index,
+            last_included_term: last_included_term,
+            data: SnapShotFileData { sqlite: buffer },
+        };
+        self.file_store.lock().await.save_snapshot(&snapshot).await;
+        snapshot
     }
 
     async fn set_snapshot(&mut self, snapshot: Snapshot<SnapShotFileData>) {
-        todo!()
+        self.file_store.lock().await.save_snapshot(&snapshot).await;
+        {
+            let conn = self.get_connection();
+            let conn = conn.lock().await;
+            self.conn_pool = vec![];
+            unsafe {
+                sqlite3_sys::sqlite3_wal_checkpoint_v2(
+                    conn.as_raw().clone(),
+                    std::ptr::null(),
+                    sqlite3_sys::SQLITE_CHECKPOINT_TRUNCATE,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+            };
+        }
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&snapshot.data.sqlite).unwrap();
+        {
+            let file = file.persist(format!("node{}.db", self.this_id)).unwrap();
+            unistd::fsync(file.as_raw_fd()).unwrap();
+        }
+        self.open_connection();
     }
 }
 
@@ -340,7 +439,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
             peers,
             store.clone(),
             store.clone(),
-            0,
+            5,
             noop,
             HEARTBEAT_TIMEOUT,
             (MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT),
@@ -453,7 +552,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                 .load(Ordering::SeqCst)
             {
                 break;
-            }
+            } 
             // TODO: add a timeout and fail if necessary
             notify.notified().await;
         }
@@ -483,5 +582,5 @@ fn is_read_statement(stmt: &str) -> bool {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SnapShotFileData {
     #[serde(with = "serde_bytes")]
-    sqlite: Vec<u8>,
+    pub sqlite: Vec<u8>,
 }

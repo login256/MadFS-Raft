@@ -190,7 +190,25 @@ impl FileStore {
         re
     }
 
-    pub async fn save_snapshot(&mut self, snapshot: &Snapshot<SnapShotFileData>) {
+    /*
+    //need to make sure db can be copy;
+    pub async fn copy_save_snapshot(&mut self, path_to_db: PathBuf, last_included_index: usize, last_included_term: usize) -> Snapshot<SnapShotFileData> {
+        let p = self.path.clone() + "/Snapshot/snapshot.bin";
+        let file_path = Path::new(&p);
+        fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                info!("{:?} already existed", file_path.parent());
+            }
+            e => {
+                panic!("{:?}", e);
+            }
+        });
+        fs::copy(path_to_db.as_path(), file_path).unwrap();
+        self.get_snapshot().await.unwrap()
+    }
+    */
+
+    pub async fn save_snapshot(&mut self, snapshot: &Snapshot<SnapShotFileData>) -> PathBuf {
         let p = self.path.clone() + "/Snapshot/snapshot.bin";
         let file_path = Path::new(&p);
         fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
@@ -206,9 +224,10 @@ impl FileStore {
         file.write_all(b.as_bytes()).unwrap();
         let file = file.persist(file_path).unwrap();
         unistd::fsync(file.as_raw_fd()).unwrap();
+        file_path.to_path_buf()
     }
 
-    pub async fn get_snapshot(&mut self) -> Option<Snapshot<SnapShotFileData>> {
+    pub async fn get_snapshot(&self) -> Option<Snapshot<SnapShotFileData>> {
         let p = self.path.clone() + "/Snapshot/snapshot.bin";
         let file_path = Path::new(&p);
         let file = OpenOptions::new().read(true).open(file_path);
