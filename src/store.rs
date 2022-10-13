@@ -208,7 +208,7 @@ impl FileStore {
     }
     */
 
-    pub async fn save_snapshot(&mut self, snapshot: &Snapshot<SnapShotFileData>) -> PathBuf {
+    pub async fn save_snapshot(&mut self, snapshot: &Snapshot<SnapShotFileData>) {
         let p = self.path.clone() + "/Snapshot/snapshot.bin";
         let file_path = Path::new(&p);
         fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
@@ -224,7 +224,11 @@ impl FileStore {
         file.write_all(b.as_bytes()).unwrap();
         let file = file.persist(file_path).unwrap();
         unistd::fsync(file.as_raw_fd()).unwrap();
-        file_path.to_path_buf()
+    }
+
+    pub async fn get_db_snapshot_path(&self) -> PathBuf {
+        let p = self.path.clone() + "/Snapshot/db.dat";
+        return Path::new(&p).to_path_buf()
     }
 
     pub async fn get_snapshot(&self) -> Option<Snapshot<SnapShotFileData>> {
@@ -236,7 +240,16 @@ impl FileStore {
                 let mut reader = BufReader::new(file);
                 let mut buffer = Vec::new();
                 reader.read_to_end(&mut buffer).unwrap();
-                Some(serde_json::from_slice::<Snapshot<SnapShotFileData>>(&buffer).unwrap())
+                let mut snapshot = serde_json::from_slice::<Snapshot<SnapShotFileData>>(&buffer).unwrap();
+
+                let dbp = self.get_db_snapshot_path().await;
+                let db_file = OpenOptions::new().read(true).open(dbp).unwrap();
+                let mut reader = BufReader::new(db_file);
+                let db_data = Vec::new();
+                reader.read_to_end(&mut buffer).unwrap();
+                snapshot.data.sqlite = db_data;
+
+                Some(snapshot)
             }
             Err(err) => match err.kind() {
                 std::io::ErrorKind::NotFound => None,
@@ -245,6 +258,7 @@ impl FileStore {
                 }
             },
         }
+
     }
 }
 

@@ -96,7 +96,7 @@
 pub mod errors;
 pub mod rpc;
 pub mod server;
-pub mod sqlite;
+pub mod sqlite_sl;
 pub mod store;
 #[cfg(madsim)]
 pub mod tester;

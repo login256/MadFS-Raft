@@ -2,6 +2,7 @@
 
 use crate::errors::StoreError;
 use crate::store::FileStore;
+use crate::sqlite_sl;
 use async_notify::Notify;
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -241,10 +242,9 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
         let file_store = file_store.lock().await;
         let snapshot = file_store.get_snapshot().await;
         if let Some(snapshot) = &snapshot {
+            let conn = self.get_connection();
+            let conn = conn.lock().await;
             {
-                let conn = self.get_connection();
-                let conn = conn.lock().await;
-                self.conn_pool = vec![];
                 unsafe {
                     sqlite3_sys::sqlite3_wal_checkpoint_v2(
                         conn.as_raw().clone(),
@@ -255,13 +255,8 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
                     );
                 };
             }
-            let mut file = tempfile::NamedTempFile::new().unwrap();
-            file.write_all(&snapshot.data.sqlite).unwrap();
-            {
-                let file = file.persist(format!("node{}.db", self.this_id)).unwrap();
-                unistd::fsync(file.as_raw_fd()).unwrap();
-            }
-            self.open_connection();
+            let db_file = file_store.get_db_snapshot_path().await;
+            sqlite_sl::load_or_save(&conn, &db_file, false).unwrap();
         }
         snapshot
     }
@@ -282,9 +277,13 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
                 std::ptr::null_mut(),
             );
         };
+        let path = {
+            self.file_store.lock().await.get_db_snapshot_path().await
+        };
+        sqlite_sl::load_or_save(&*conn, &path, true).unwrap();
         let file = OpenOptions::new()
             .read(true)
-            .open(format!("node{}.db", self.this_id))
+            .open(&path)
             .unwrap();
         let mut reader = BufReader::new(file);
         let mut buffer = Vec::new();
@@ -299,28 +298,30 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
     }
 
     async fn set_snapshot(&mut self, snapshot: Snapshot<SnapShotFileData>) {
-        self.file_store.lock().await.save_snapshot(&snapshot).await;
         {
-            let conn = self.get_connection();
-            let conn = conn.lock().await;
-            self.conn_pool = vec![];
-            unsafe {
-                sqlite3_sys::sqlite3_wal_checkpoint_v2(
-                    conn.as_raw().clone(),
-                    std::ptr::null(),
-                    sqlite3_sys::SQLITE_CHECKPOINT_TRUNCATE,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                );
-            };
+            self.file_store.lock().await.save_snapshot(&snapshot).await;
         }
+        let conn = self.get_connection();
+        let conn = conn.lock().await;
+        unsafe {
+            sqlite3_sys::sqlite3_wal_checkpoint_v2(
+                conn.as_raw().clone(),
+                std::ptr::null(),
+                sqlite3_sys::SQLITE_CHECKPOINT_TRUNCATE,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        };
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&snapshot.data.sqlite).unwrap();
+        let file_name = {
+            self.file_store.lock().await.get_db_snapshot_path().await
+        };
         {
-            let file = file.persist(format!("node{}.db", self.this_id)).unwrap();
+            let file = file.persist(&file_name).unwrap();
             unistd::fsync(file.as_raw_fd()).unwrap();
         }
-        self.open_connection();
+        sqlite_sl::load_or_save(&conn, &file_name, false).unwrap();
     }
 }
 
@@ -581,6 +582,7 @@ fn is_read_statement(stmt: &str) -> bool {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SnapShotFileData {
-    #[serde(with = "serde_bytes")]
+    //#[serde(with = "serde_bytes")]
+    #[serde(skip)]
     pub sqlite: Vec<u8>,
 }
