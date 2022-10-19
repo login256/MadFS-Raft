@@ -1,8 +1,8 @@
 //! ChiselStore server module.
 
 use crate::errors::StoreError;
-use crate::store::FileStore;
 use crate::sqlite_sl;
+use crate::store::FileStore;
 use async_notify::Notify;
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -18,6 +18,7 @@ use madsim::collections::HashMap;
 use nix::unistd;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
+use std::sync::Arc;
 use std::{
     fmt::Debug,
     fs::{self},
@@ -32,7 +33,6 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::{str::Bytes, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender};
 use tokio::sync::Mutex;
@@ -241,7 +241,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
         let file_store = self.file_store.clone();
         let file_store = file_store.lock().await;
         let snapshot = file_store.get_snapshot().await;
-        if let Some(snapshot) = &snapshot {
+        if let Some(_snapshot) = &snapshot {
             let conn = self.get_connection();
             let conn = conn.lock().await;
             {
@@ -277,14 +277,9 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
                 std::ptr::null_mut(),
             );
         };
-        let path = {
-            self.file_store.lock().await.get_db_snapshot_path().await
-        };
+        let path = { self.file_store.lock().await.get_db_snapshot_path().await };
         sqlite_sl::load_or_save(&*conn, &path, true).unwrap();
-        let file = OpenOptions::new()
-            .read(true)
-            .open(&path)
-            .unwrap();
+        let file = OpenOptions::new().read(true).open(&path).unwrap();
         let mut reader = BufReader::new(file);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).unwrap();
@@ -314,9 +309,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
         };
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&snapshot.data.sqlite).unwrap();
-        let file_name = {
-            self.file_store.lock().await.get_db_snapshot_path().await
-        };
+        let file_name = { self.file_store.lock().await.get_db_snapshot_path().await };
         {
             let file = file.persist(&file_name).unwrap();
             unistd::fsync(file.as_raw_fd()).unwrap();
@@ -553,7 +546,7 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
                 .load(Ordering::SeqCst)
             {
                 break;
-            } 
+            }
             // TODO: add a timeout and fail if necessary
             notify.notified().await;
         }

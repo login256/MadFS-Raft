@@ -213,7 +213,7 @@ impl FileStore {
         let file_path = Path::new(&p);
         fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
             std::io::ErrorKind::AlreadyExists => {
-                info!("{:?} already existed", file_path.parent());
+                debug!("{:?} already existed", file_path.parent());
             }
             e => {
                 panic!("{:?}", e);
@@ -228,7 +228,16 @@ impl FileStore {
 
     pub async fn get_db_snapshot_path(&self) -> PathBuf {
         let p = self.path.clone() + "/Snapshot/db.dat";
-        return Path::new(&p).to_path_buf()
+        let file_path = Path::new(&p);
+        fs::create_dir_all(file_path.parent().unwrap()).unwrap_or_else(|why| match why.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                debug!("{:?} already existed", file_path.parent());
+            }
+            e => {
+                panic!("{:?}", e);
+            }
+        });
+        file_path.to_path_buf()
     }
 
     pub async fn get_snapshot(&self) -> Option<Snapshot<SnapShotFileData>> {
@@ -240,7 +249,8 @@ impl FileStore {
                 let mut reader = BufReader::new(file);
                 let mut buffer = Vec::new();
                 reader.read_to_end(&mut buffer).unwrap();
-                let mut snapshot = serde_json::from_slice::<Snapshot<SnapShotFileData>>(&buffer).unwrap();
+                let mut snapshot =
+                    serde_json::from_slice::<Snapshot<SnapShotFileData>>(&buffer).unwrap();
 
                 let dbp = self.get_db_snapshot_path().await;
                 let db_file = OpenOptions::new().read(true).open(dbp).unwrap();
@@ -258,7 +268,6 @@ impl FileStore {
                 }
             },
         }
-
     }
 }
 

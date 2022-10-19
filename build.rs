@@ -8,7 +8,7 @@ fn main() -> std::io::Result<()> {
     println!("cargo:rerun-if-changed={}", proto);
 
     cc::Build::new()
-    .file("c/sqlite.c")
-    .compile("libsqlitesl.a");
+        .file("src/c/sqlite.c")
+        .compile("libsqlitesl.a");
     Ok(())
 }
