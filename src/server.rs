@@ -131,8 +131,11 @@ impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
                 .set_read_write()
                 .set_create()
                 .set_no_mutex();
-            let mut conn =
-                Connection::open_with_flags(format!("node{}.db", this_id), flags).unwrap();
+            let mut conn = Connection::open_with_flags(
+                format!("file:memdb{}?mode=memory&cache=shared", this_id),
+                flags,
+            )
+            .unwrap();
             conn.set_busy_timeout(5000).unwrap();
             conn_pool.push(Arc::new(Mutex::new(conn)));
         }
@@ -166,26 +169,6 @@ impl<T: StoreTransport + Send + Sync + Debug> SqlStateMachine<T> {
         let conn = &self.conn_pool[idx];
         self.conn_idx += 1;
         conn.clone()
-    }
-
-    pub fn open_connection(&mut self) {
-        let mut conn_pool = vec![];
-        let conn_pool_size = self.config.conn_pool_size;
-        for _ in 0..conn_pool_size {
-            // FIXME: Let's use the 'memdb' VFS of SQLite, which allows concurrent threads
-            // accessing the same in-memory database.
-            let flags = OpenFlags::new()
-                .set_read_write()
-                .set_create()
-                .set_no_mutex();
-            let mut conn =
-                Connection::open_with_flags(format!("node{}.db", self.this_id), flags).unwrap();
-            conn.set_busy_timeout(5000).unwrap();
-            conn_pool.push(Arc::new(Mutex::new(conn)));
-        }
-        let conn_idx = 0;
-        self.conn_pool = conn_pool;
-        self.conn_idx = conn_idx;
     }
 }
 
@@ -413,8 +396,6 @@ impl<T: StoreTransport + Send + Sync + Debug> StoreServer<T> {
         };
         let path = PathBuf::from(path);
         let filestore = Arc::new(Mutex::new(FileStore::new(Some(path))));
-        let sss = format!("node{}.db", this_id);
-        let _res = fs::remove_file(sss.as_str());
         let store = Arc::new(Mutex::new(SqlStateMachine::new(
             this_id,
             transport,
