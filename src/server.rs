@@ -19,10 +19,7 @@ use nix::unistd;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
 use std::sync::Arc;
-use std::{
-    fmt::Debug,
-    fs::{self},
-};
+use std::{fmt::Debug, fs};
 use std::{
     fs::OpenOptions,
     io::{BufReader, Read, Write},
