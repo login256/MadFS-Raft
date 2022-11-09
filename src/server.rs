@@ -14,12 +14,12 @@ use little_raft::{
 };
 use log::{debug, info, trace};
 use log_derive::logfn_inputs;
-use std::collections::HashMap;
 use nix::unistd;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
+use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
-use std::{fmt::Debug};
 use std::{
     fs::OpenOptions,
     io::{BufReader, Read, Write},
