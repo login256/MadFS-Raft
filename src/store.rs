@@ -219,7 +219,7 @@ impl FileStore {
                 panic!("{:?}", e);
             }
         });
-        let mut file = tempfile::NamedTempFile::new().unwrap(); //::tempfile().unwrap();
+        let mut file = tempfile::NamedTempFile::new_in(file_path.parent().unwrap()).unwrap(); //::tempfile().unwrap();
         let b = serde_json::to_string(snapshot).unwrap();
         file.write_all(b.as_bytes()).unwrap();
         let file = file.persist(file_path).unwrap();

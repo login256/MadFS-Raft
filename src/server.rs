@@ -14,12 +14,12 @@ use little_raft::{
 };
 use log::{debug, info, trace};
 use log_derive::logfn_inputs;
-use madsim::collections::HashMap;
+use std::collections::HashMap;
 use nix::unistd;
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, OpenFlags};
 use std::sync::Arc;
-use std::{fmt::Debug, fs};
+use std::{fmt::Debug};
 use std::{
     fs::OpenOptions,
     io::{BufReader, Read, Write},
@@ -287,9 +287,9 @@ impl<T: StoreTransport + Send + Sync + Debug> StateMachine<StoreCommand, SnapSho
                 std::ptr::null_mut(),
             );
         };
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(&snapshot.data.sqlite).unwrap();
         let file_name = { self.file_store.lock().await.get_db_snapshot_path().await };
+        let mut file = tempfile::NamedTempFile::new_in(file_name.parent().unwrap()).unwrap();
+        file.write_all(&snapshot.data.sqlite).unwrap();
         {
             let file = file.persist(&file_name).unwrap();
             unistd::fsync(file.as_raw_fd()).unwrap();

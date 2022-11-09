@@ -9,7 +9,7 @@ use crossbeam::queue::ArrayQueue;
 use derivative::Derivative;
 use little_raft::message::Message;
 use log::{debug, error};
-use madsim::collections::HashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
