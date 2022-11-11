@@ -57,7 +57,9 @@ message AppendEntriesResponse {
     uint64 term = 2;
     bool success = 3;
     uint64 last_index = 4;
-    optional uint64 mismatch_index = 5;
+    oneof mismatch_index {
+        uint64 mismatch_index_value = 5;
+    }
 }
 
 message InstallSnapshotRequest {

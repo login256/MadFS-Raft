@@ -176,7 +176,7 @@ impl StoreTransport for RpcTransport {
                 let from_id = from_id as u64;
                 let term = term as u64;
                 let last_index = last_index as u64;
-                let mismatch_index = mismatch_index.map(|idx| idx as u64);
+                let mismatch_index = mismatch_index.map(|idx| proto::append_entries_response::MismatchIndex::MismatchIndexValue(idx as u64));
                 let request = AppendEntriesResponse {
                     from_id,
                     term,
@@ -446,7 +446,7 @@ impl Rpc for RpcService {
         let term = msg.term as usize;
         let success = msg.success;
         let last_index = msg.last_index as usize;
-        let mismatch_index = msg.mismatch_index.map(|idx| idx as usize);
+        let mismatch_index = msg.mismatch_index.map(|proto::append_entries_response::MismatchIndex::MismatchIndexValue(idx)| idx as usize);
         let msg = little_raft::message::Message::AppendEntryResponse {
             from_id,
             term,
